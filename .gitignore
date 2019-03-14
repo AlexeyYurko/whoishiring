@@ -1,0 +1,6 @@
+.idea/
+.DS_Store
+*.sqlite
+*.json
+who*.html
+*.pickle
