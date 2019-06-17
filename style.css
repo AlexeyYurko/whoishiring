@@ -3,7 +3,7 @@ body {
     margin: 5px;
     padding: 0;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    background-color: #F0F0F0;
+    background-color: #FDFDFD;
 }
 
 .job_head {
@@ -11,11 +11,13 @@ body {
     font-weight: bold;
     margin-top: 5px;
     border-radius: 3px;
-    background-color: rgb(200, 200, 200);
+    background-color: #C8C8C8;
     margin-bottom: 5px;
 }
 
 .job_entry {
     margin-left: 15px;
     margin-bottom: 10px;
+    background-color: #FAFAFA;
+
 }

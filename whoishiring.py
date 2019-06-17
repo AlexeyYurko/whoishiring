@@ -66,7 +66,7 @@ def get_thread_name(from_thread_id):
         print(f"Thread {from_thread_id} non exist.")
         exit()
     month_year = re.findall(r'\(([A-Za-z]+ \d+)\)', story_name)[0].lower()
-    short_name = f"whoishiring {month_year}"
+    short_name = '_'.join(f"whoishiring {month_year}".split(' '))
     return short_name
 
 
@@ -215,7 +215,8 @@ def grab_new_comments(comments, all_kids):
         job_description = ''
         if next_comment:
             job_head = next_comment.split("<p>")[0]
-            job_description = "<br>".join(next_comment.split("<p>")[1:]).replace('</p>', '')
+            job_description = "<br>".join(next_comment.split("<p>")
+                                          [1:]).replace('</p>', '')
             comments.append({"kid": kid,
                              "head": job_head,
                              "description": job_description})
