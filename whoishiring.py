@@ -1,14 +1,14 @@
 """
 get job listing from "Who is hiring" HN thread
-
 TODO allow to store data of vacancy to make html based on month and year not
-    on entire base
+    on entire base - as variant
 TODO remake job_head and job_description - for now it's a mess and generate
     a ton of crazy html-like code with incorrect close/open tags
 TODO allow to modify keywords via command line arguments or config file
 TODO remake block for making html entries
 TODO rewrite API/BS4 block to single function
-
+TODO looks like it's time to remove the save to json))
+TODO add multiprocessing in API block
 """
 import argparse
 import codecs
@@ -22,6 +22,14 @@ import requests
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from tqdm import tqdm
+
+CONN = sqlite3.connect("whoishiring.sqlite")
+CUR = CONN.cursor()
+CUR.execute(
+    """CREATE TABLE IF NOT EXISTS kids(kid INTEGER UNIQE,
+                                             head BLOB,
+                                             description BLOB)"""
+)
 
 
 def create_parser():
@@ -64,7 +72,7 @@ def get_thread_name(from_thread_id):
         story_name = requests.get(get_item_url(from_thread_id)).json()["title"]
     except TypeError:
         print(f"Thread {from_thread_id} non exist.")
-        exit()
+        sys.exit()
     month_year = re.findall(r'\(([A-Za-z]+ \d+)\)', story_name)[0].lower()
     short_name = '_'.join(f"whoishiring {month_year}".split(' '))
     return short_name
@@ -136,16 +144,10 @@ def grab_new_comments_html(comments, entrys):
         entrys (list): list of comments from thread
     TODO rewrite db connection
     """
-    conn = sqlite3.connect("whoishiring.sqlite")
-    cur = conn.cursor()
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS kids(kid INTEGER UNIQE,
-                                                 head BLOB,
-                                                 description BLOB)"""
-    )
-    cur.execute("SELECT kid FROM kids")
+
+    CUR.execute("SELECT kid FROM kids")
     try:
-        kids_in_base = cur.fetchall()
+        kids_in_base = CUR.fetchall()
     except IndexError:
         kids_in_base = []
     stored_kids = list(kid[0] for kid in kids_in_base) if kids_in_base else []
@@ -170,40 +172,29 @@ def grab_new_comments_html(comments, entrys):
         except IndexError:
             continue
         if job_description:
-            if 'We detached' in job_description:
-                continue
-            else:
+            if 'We detached' not in job_description:
                 comments.append(
                     {"kid": kid,
                      "head": job_head,
                      "description": job_description})
-                cur.execute(
+                CUR.execute(
                     """INSERT INTO kids
                         (kid, head, description)
                         VALUES (?, ?, ?)""",
                     (kid, job_head, job_description),
                 )
-                conn.commit()
-        else:
-            continue
-    conn.close()
+                CONN.commit()
     return comments
 
 
 def grab_new_comments(comments, all_kids):
     """
     get saved kid_id from base, get only new id
+    TODO: convert to multiprocessing
     """
-    conn = sqlite3.connect("whoishiring.sqlite")
-    cur = conn.cursor()
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS kids(kid INTEGER UNIQE,
-                                                 head BLOB,
-                                                 description BLOB)"""
-    )
-    cur.execute("SELECT kid FROM kids")
+    CUR.execute("SELECT kid FROM kids")
     try:
-        kids_in_base = cur.fetchall()
+        kids_in_base = CUR.fetchall()
     except IndexError:
         kids_in_base = []
     kids_in_base = [kid[0] for kid in kids_in_base]
@@ -220,14 +211,13 @@ def grab_new_comments(comments, all_kids):
             comments.append({"kid": kid,
                              "head": job_head,
                              "description": job_description})
-        cur.execute(
+        CUR.execute(
             """INSERT INTO kids
                         (kid, head, description)
                         VALUES (?, ?, ?)""",
             (kid, job_head, job_description),
         )
-        conn.commit()
-    conn.close()
+        CONN.commit()
     return comments
 
 
@@ -276,8 +266,8 @@ def get_page(url):
     Returns:
         [soup]: beautiful soup object
     """
-
-    response = requests.get(
+    session = requests.session()
+    response = session.get(
         url, headers={"User-Agent": UserAgent().chrome}).content
     soup = BeautifulSoup(response, "lxml")
     return soup
@@ -307,6 +297,7 @@ def run(thread):
     new_comments = grab_new_comments(old_comments, kids)
     make_html(new_comments, name)
     save_to_json(new_comments, name)
+    CONN.close()
 
 
 if __name__ == "__main__":
