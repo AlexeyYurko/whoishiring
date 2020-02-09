@@ -1,35 +1,22 @@
 """
 get job listing from "Who is hiring" HN thread
-TODO allow to store data of vacancy to make html based on month and year not
-    on entire base - as variant
 TODO remake job_head and job_description - for now it's a mess and generate
     a ton of crazy html-like code with incorrect close/open tags
 TODO allow to modify keywords via command line arguments or config file
 TODO remake block for making html entries
-TODO rewrite API/BS4 block to single function
 TODO looks like it's time to remove the save to json))
-TODO add multiprocessing in API block
 """
 import argparse
 import codecs
 import json
+import multiprocessing
 import pickle
+import datetime
 import re
-import sqlite3
 import sys
 
 import requests
-from bs4 import BeautifulSoup
-from fake_useragent import UserAgent
-from tqdm import tqdm
-
-CONN = sqlite3.connect("whoishiring.sqlite")
-CUR = CONN.cursor()
-CUR.execute(
-    """CREATE TABLE IF NOT EXISTS kids(kid INTEGER UNIQE,
-                                             head BLOB,
-                                             description BLOB)"""
-)
+from pymongo import MongoClient
 
 
 def create_parser():
@@ -43,8 +30,6 @@ def create_parser():
     argparser.add_argument(
         "-t", "--thread", action="store", help="Who is hiring thread number"
     )
-    argparser.add_argument("-f", "--fast", action="store_true",
-                           help="Fast scraping")
     return argparser
 
 
@@ -107,117 +92,53 @@ def get_kids(thread_id_to_get_kids):
     return story_kids
 
 
-def get_all_comments_from_thread(thread):
-    """get_all_comments_from_thread - scrape page by page if link 'more' is
-        available
-
-    Args:
-        thread (int): thread_id
-
-    Returns:
-        [list of soups]: scraped comments
+def get_multi_comments(kid):
     """
-
-    url = f"https://news.ycombinator.com/item?id={thread}"
-    not_a_last_page = True
-    total_entries = []
-    while not_a_last_page:
-        print(f"Get page {url}")
-        soup = get_page(url)
-        entries = soup.findAll("div", {"class": "comment"})
-        total_entries += entries
-        have_more_link = soup.findAll("a", {"class": "morelink"})
-        if have_more_link:
-            url_tail = have_more_link[0].get("href")
-            url = f"https://news.ycombinator.com/{url_tail}"
-        else:
-            not_a_last_page = False
-    return total_entries
-
-
-def grab_new_comments_html(comments, entrys):
-    """grab_new_comments_html Get comments from html scrapes via BeautifulSoup.
-                              It's way faster than API, but not very accurate
-
-    Args:
-        comments (list): list of old comments from json file
-        entrys (list): list of comments from thread
-    TODO rewrite db connection
+    get comment from kid_id, as multiprocessor call
     """
-
-    CUR.execute("SELECT kid FROM kids")
-    try:
-        kids_in_base = CUR.fetchall()
-    except IndexError:
-        kids_in_base = []
-    stored_kids = list(kid[0] for kid in kids_in_base) if kids_in_base else []
-
-    for entry in entrys:
-        try:
-            text = entry.findAll('span', {'class': 'commtext'})[0]
-        except IndexError:
-            continue
-        try:
-            kid = int(re.findall(r'reply\?id=(\d+)', entry.__str__())[0])
-        except IndexError:
-            kid = 0
-        if kid in stored_kids:
-            continue
-
-        try:
-            job_head = re.findall(
-                r'.+c00">(.+)', text.__str__().split("<p>")[0])[0]
-            job_description = "<br>".join(text.__str__().split(
-                "<p>")[1:]).rstrip("</span>").replace('</p>', '')
-        except IndexError:
-            continue
-        if job_description:
-            if 'We detached' not in job_description:
-                comments.append(
-                    {"kid": kid,
-                     "head": job_head,
-                     "description": job_description})
-                CUR.execute(
-                    """INSERT INTO kids
-                        (kid, head, description)
-                        VALUES (?, ?, ?)""",
-                    (kid, job_head, job_description),
-                )
-                CONN.commit()
-    return comments
+    client = MongoClient()
+    database = client["whoishiring"]
+    jobs = database["jobs"]
+    result = requests.get(get_item_url(kid)).json()
+    next_comment = result["text"] if result and "text" in result else ""
+    comment_time = datetime.datetime.fromtimestamp(
+        int(result["time"])).strftime('%Y-%m-%d %H:%M:%S')
+    comment_time_date, comment_time_time = comment_time.split(' ')
+    job_head = ""
+    job_description = ""
+    if next_comment:
+        job_head = next_comment.split("<p>")[0]
+        job_description = "<br>".join(next_comment.split("<p>")
+                                      [1:]).replace('</p>', '')
+        jobs.insert_one({"kid": kid,
+                         "head": job_head,
+                         "description": job_description,
+                         "day": comment_time_date,
+                         "time": comment_time_time
+                         })
 
 
-def grab_new_comments(comments, all_kids):
+def grab_new_comments(all_kids):
     """
-    get saved kid_id from base, get only new id
-    TODO: convert to multiprocessing
+    get saved kid_id from base, get only new id with multiprocessing
+    TODO return progress bar
     """
-    CUR.execute("SELECT kid FROM kids")
-    try:
-        kids_in_base = CUR.fetchall()
-    except IndexError:
-        kids_in_base = []
-    kids_in_base = [kid[0] for kid in kids_in_base]
-    kids_to_add = set(all_kids) - set(kids_in_base)
+    client = MongoClient()
+    database = client['whoishiring']
+    jobs = database['jobs']
+    kids_in_base = {record['kid'] for record in jobs.find({}, {'kid': 1})}
+    kids_to_add = {kid
+                   for kid in all_kids
+                   if kid not in kids_in_base}
+    pool = multiprocessing.Pool(processes=30)
+    pool.map(get_multi_comments, kids_to_add)
 
-    for kid in tqdm(kids_to_add):
-        next_comment = get_comments(kid)
-        job_head = ''
-        job_description = ''
-        if next_comment:
-            job_head = next_comment.split("<p>")[0]
-            job_description = "<br>".join(next_comment.split("<p>")
-                                          [1:]).replace('</p>', '')
-            comments.append({"kid": kid,
-                             "head": job_head,
-                             "description": job_description})
-        CUR.execute(
-            """INSERT INTO kids
-                        (kid, head, description)
-                        VALUES (?, ?, ?)""",
-            (kid, job_head, job_description),
-        )
-        CONN.commit()
+    comments = [{"kid": comment["kid"],
+                 "head": comment["head"],
+                 "description": comment["description"]
+                 }
+                for comment in jobs.find({})
+                ]
     return comments
 
 
@@ -257,47 +178,16 @@ def write_thread_id(thread_id_to_save):
         pickle.dump(thread_id_to_save, pickle_out)
 
 
-def get_page(url):
-    """get_page get page via requests and throw it to beautiful soup
-
-    Args:
-        url (string): address
-
-    Returns:
-        [soup]: beautiful soup object
-    """
-    session = requests.session()
-    response = session.get(
-        url, headers={"User-Agent": UserAgent().chrome}).content
-    soup = BeautifulSoup(response, "lxml")
-    return soup
-
-
-def scrape(thread):
-    """
-    main block for getting data with BeautifulSoup and a little bit of API ;)
-    """
-    name = get_thread_name(thread)
-    entries = get_all_comments_from_thread(thread)
-    print(f'In thread {thread} with name "{name}" are {len(entries)} records')
-    comments = load_from_json(name)
-    new_comments = grab_new_comments_html(comments, entries)
-    make_html(new_comments, name)
-    save_to_json(new_comments, name)
-
-
 def run(thread):
     """
     main block for getting data with API
     """
     name = get_thread_name(thread)
-    old_comments = load_from_json(name)
     kids = get_kids(thread)
     print(f'In thread {thread} with name "{name}" are {len(kids)} records')
-    new_comments = grab_new_comments(old_comments, kids)
+    new_comments = grab_new_comments(kids)
     make_html(new_comments, name)
     save_to_json(new_comments, name)
-    CONN.close()
 
 
 if __name__ == "__main__":
@@ -315,8 +205,4 @@ if __name__ == "__main__":
         THREAD_ID = ARGS.thread
 
     write_thread_id(THREAD_ID)
-
-    if ARGS.fast:
-        scrape(THREAD_ID)
-    else:
-        run(THREAD_ID)
+    run(THREAD_ID)
