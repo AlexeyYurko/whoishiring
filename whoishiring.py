@@ -8,10 +8,10 @@ TODO looks like it's time to remove the save to json))
 """
 import argparse
 import codecs
+import datetime
 import json
 import multiprocessing
 import pickle
-import datetime
 import re
 import sys
 
@@ -52,7 +52,6 @@ def get_thread_name(from_thread_id):
     """
     extract name of the thread + month and year
     """
-    story_name = ""
     try:
         story_name = requests.get(get_item_url(from_thread_id)).json()["title"]
     except TypeError:
@@ -104,8 +103,6 @@ def get_multi_comments(kid):
     comment_time = datetime.datetime.fromtimestamp(
         int(result["time"])).strftime('%Y-%m-%d %H:%M:%S')
     comment_time_date, comment_time_time = comment_time.split(' ')
-    job_head = ""
-    job_description = ""
     if next_comment:
         job_head = next_comment.split("<p>")[0]
         job_description = "<br>".join(next_comment.split("<p>")
