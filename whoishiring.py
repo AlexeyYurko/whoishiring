@@ -4,12 +4,10 @@ TODO remake job_head and job_description - for now it's a mess and generate
     a ton of crazy html-like code with incorrect close/open tags
 TODO allow to modify keywords via command line arguments or config file
 TODO remake block for making html entries
-TODO looks like it's time to remove the save to json))
 """
 import argparse
 import codecs
 import datetime
-import json
 import multiprocessing
 import pickle
 import re
@@ -57,29 +55,12 @@ def get_thread_name(from_thread_id):
     except TypeError:
         print(f"Thread {from_thread_id} non exist.")
         sys.exit()
-    month_year = re.findall(r'\(([A-Za-z]+ \d+)\)', story_name)[0].lower()
-    short_name = '_'.join(f"whoishiring {month_year}".split(' '))
+    if 'right now' in story_name:
+        short_name = 'whoishiring right now'
+    else:
+        month_year = re.findall(r'\(([A-Za-z]+ \d+)\)', story_name)[0].lower()
+        short_name = '_'.join(f"whoishiring {month_year}".split(' '))
     return short_name
-
-
-def load_from_json(filename):
-    """
-    load json file from previous session (if exist)
-    """
-    try:
-        with open(f"{filename}.json", "r") as file:
-            saved_comments = json.load(file)
-    except FileNotFoundError:
-        saved_comments = []
-    return saved_comments
-
-
-def save_to_json(comments_to_save, filename):
-    """
-    save all comment to json file
-    """
-    with open(f"{filename}.json", "w") as file:
-        json.dump(comments_to_save, file)
 
 
 def get_kids(thread_id_to_get_kids):
@@ -100,10 +81,10 @@ def get_multi_comments(kid):
     jobs = database["jobs"]
     result = requests.get(get_item_url(kid)).json()
     next_comment = result["text"] if result and "text" in result else ""
-    comment_time = datetime.datetime.fromtimestamp(
-        int(result["time"])).strftime('%Y-%m-%d %H:%M:%S')
-    comment_time_date, comment_time_time = comment_time.split(' ')
     if next_comment:
+        comment_time = datetime.datetime.fromtimestamp(
+            int(result["time"])).strftime('%Y-%m-%d %H:%M:%S')
+        comment_time_date, comment_time_time = comment_time.split(' ')
         job_head = next_comment.split("<p>")[0]
         job_description = "<br>".join(next_comment.split("<p>")
                                       [1:]).replace('</p>', '')
@@ -132,10 +113,12 @@ def grab_new_comments(all_kids):
 
     comments = [{"kid": comment["kid"],
                  "head": comment["head"],
-                 "description": comment["description"]
+                 "description": comment["description"],
+                 "time": comment["day"] + "@" + comment["time"]
                  }
                 for comment in jobs.find({})
                 ]
+    comments = sorted(comments, key=lambda x: x["time"], reverse=True)
     return comments
 
 
@@ -152,7 +135,7 @@ def make_html(job_listing, filename):
         if "remote" in entry_text.lower():
             block_start = '<div class="job_entry">'
             first_line = f"""<div class="job_head"><em>#{i}</em>
-                             {entry['head']}</div>"""
+                             {entry['head']}, posted: {entry['time']}</div>"""
             jobs_block += f"""{block_start}{first_line}
                               {entry['description']}</a></div>\n"""
             counter += 1
@@ -184,7 +167,6 @@ def run(thread):
     print(f'In thread {thread} with name "{name}" are {len(kids)} records')
     new_comments = grab_new_comments(kids)
     make_html(new_comments, name)
-    save_to_json(new_comments, name)
 
 
 if __name__ == "__main__":
