@@ -8,13 +8,14 @@ TODO remake block for making html entries
 import argparse
 import codecs
 import datetime
-import multiprocessing
 import pickle
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from pymongo import MongoClient
+from tqdm import tqdm
 
 
 def create_parser():
@@ -67,9 +68,8 @@ def get_kids(thread_id_to_get_kids):
     """
     get kids from story thread
     """
-    story_kids = requests.get(get_item_url(
+    return requests.get(get_item_url(
         thread_id_to_get_kids)).json()["kids"]
-    return story_kids
 
 
 def get_multi_comments(kid):
@@ -99,7 +99,6 @@ def get_multi_comments(kid):
 def grab_new_comments(all_kids):
     """
     get saved kid_id from base, get only new id with multiprocessing
-    TODO return progress bar
     """
     client = MongoClient()
     database = client['whoishiring']
@@ -108,8 +107,8 @@ def grab_new_comments(all_kids):
     kids_to_add = {kid
                    for kid in all_kids
                    if kid not in kids_in_base}
-    pool = multiprocessing.Pool(processes=30)
-    pool.map(get_multi_comments, kids_to_add)
+    with ThreadPoolExecutor() as executor:
+        _ = list(tqdm(executor.map(get_multi_comments, kids_to_add), total=len(kids_to_add)))
 
     comments = [{"kid": comment["kid"],
                  "head": comment["head"],
@@ -119,6 +118,7 @@ def grab_new_comments(all_kids):
                 for comment in jobs.find({})
                 ]
     comments = sorted(comments, key=lambda x: x["time"], reverse=True)
+    client.close()
     return comments
 
 
