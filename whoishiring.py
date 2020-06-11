@@ -39,14 +39,6 @@ def get_item_url(kid_id):
     return f'https://hacker-news.firebaseio.com/v0/item/{kid_id}.json'
 
 
-def get_comments(kid_id):
-    """
-    get all comments
-    """
-    result = requests.get(get_item_url(kid_id)).json()
-    return result["text"] if result and "text" in result else ""
-
-
 def get_thread_name(from_thread_id):
     """
     extract name of the thread + month and year
