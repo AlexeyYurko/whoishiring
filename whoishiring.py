@@ -36,7 +36,7 @@ def get_item_url(kid_id):
     """
     make url with kid_id
     """
-    return f'https://hacker-news.firebaseio.com/v0/item/{kid_id}.json'
+    return f"https://hacker-news.firebaseio.com/v0/item/{kid_id}.json"
 
 
 def get_thread_name(from_thread_id):
@@ -48,11 +48,11 @@ def get_thread_name(from_thread_id):
     except TypeError:
         print(f"Thread {from_thread_id} non exist.")
         sys.exit()
-    if 'right now' in story_name:
-        short_name = 'whoishiring right now'
+    if "right now" in story_name:
+        short_name = "whoishiring right now"
     else:
-        month_year = re.findall(r'\(([A-Za-z]+ \d+)\)', story_name)[0].lower()
-        short_name = '_'.join(f"whoishiring {month_year}".split(' '))
+        month_year = re.findall(r"\(([A-Za-z]+ \d+)\)", story_name)[0].lower()
+        short_name = "_".join(f"whoishiring {month_year}".split(" "))
     return short_name
 
 
@@ -60,8 +60,7 @@ def get_kids(thread_id_to_get_kids):
     """
     get kids from story thread
     """
-    return requests.get(get_item_url(
-        thread_id_to_get_kids)).json()["kids"]
+    return requests.get(get_item_url(thread_id_to_get_kids)).json()["kids"]
 
 
 def get_multi_comments(kid):
@@ -74,18 +73,21 @@ def get_multi_comments(kid):
     result = requests.get(get_item_url(kid)).json()
     next_comment = result["text"] if result and "text" in result else ""
     if next_comment:
-        comment_time = datetime.datetime.fromtimestamp(
-            int(result["time"])).strftime('%Y-%m-%d %H:%M:%S')
-        comment_time_date, comment_time_time = comment_time.split(' ')
+        comment_time = datetime.datetime.fromtimestamp(int(result["time"])).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        comment_time_date, comment_time_time = comment_time.split(" ")
         job_head = next_comment.split("<p>")[0]
-        job_description = "<br>".join(next_comment.split("<p>")
-                                      [1:]).replace('</p>', '')
-        jobs.insert_one({"kid": kid,
-                         "head": job_head,
-                         "description": job_description,
-                         "day": comment_time_date,
-                         "time": comment_time_time
-                         })
+        job_description = "<br>".join(next_comment.split("<p>")[1:]).replace("</p>", "")
+        jobs.insert_one(
+            {
+                "kid": kid,
+                "head": job_head,
+                "description": job_description,
+                "day": comment_time_date,
+                "time": comment_time_time,
+            }
+        )
 
 
 def grab_new_comments(all_kids):
@@ -93,22 +95,24 @@ def grab_new_comments(all_kids):
     get saved kid_id from base, get only new id with multiprocessing
     """
     client = MongoClient()
-    database = client['whoishiring']
-    jobs = database['jobs']
-    kids_in_base = {record['kid'] for record in jobs.find({}, {'kid': 1})}
-    kids_to_add = {kid
-                   for kid in all_kids
-                   if kid not in kids_in_base}
+    database = client["whoishiring"]
+    jobs = database["jobs"]
+    kids_in_base = {record["kid"] for record in jobs.find({}, {"kid": 1})}
+    kids_to_add = {kid for kid in all_kids if kid not in kids_in_base}
     with ThreadPoolExecutor() as executor:
-        _ = list(tqdm(executor.map(get_multi_comments, kids_to_add), total=len(kids_to_add)))
+        _ = list(
+            tqdm(executor.map(get_multi_comments, kids_to_add), total=len(kids_to_add))
+        )
 
-    comments = [{"kid": comment["kid"],
-                 "head": comment["head"],
-                 "description": comment["description"],
-                 "time": comment["day"] + "@" + comment["time"]
-                 }
-                for comment in jobs.find({})
-                ]
+    comments = [
+        {
+            "kid": comment["kid"],
+            "head": comment["head"],
+            "description": comment["description"],
+            "time": comment["day"] + "@" + comment["time"],
+        }
+        for comment in jobs.find({})
+    ]
     comments = sorted(comments, key=lambda x: x["time"], reverse=True)
     client.close()
     return comments
@@ -121,7 +125,7 @@ def make_html(job_listing, filename):
     counter = 0
     with open("template.html", "r") as file:
         template = file.read()
-    jobs_block = ''
+    jobs_block = ""
     for i, entry in enumerate(job_listing, 1):
         entry_text = f"{entry['head']} {entry['description']}"
         if "remote" in entry_text.lower():
