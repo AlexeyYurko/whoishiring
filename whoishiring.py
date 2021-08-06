@@ -12,9 +12,11 @@ import pickle
 import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 import requests
 from pymongo import MongoClient
+from pymongo.errors import AutoReconnect
 from tqdm import tqdm
 
 
@@ -49,11 +51,9 @@ def get_thread_name(from_thread_id):
         print(f"Thread {from_thread_id} non exist.")
         sys.exit()
     if "right now" in story_name:
-        short_name = "whoishiring right now"
-    else:
-        month_year = re.findall(r"\(([A-Za-z]+ \d+)\)", story_name)[0].lower()
-        short_name = "_".join(f"whoishiring {month_year}".split(" "))
-    return short_name
+        return "whoishiring right now"
+    month_year = re.findall(r"\(([A-Za-z]+ \d+)\)", story_name)[0].lower()
+    return "_".join(f"whoishiring {month_year}".split(" ")), month_year
 
 
 def get_kids(thread_id_to_get_kids):
@@ -79,18 +79,22 @@ def get_multi_comments(kid):
         comment_time_date, comment_time_time = comment_time.split(" ")
         job_head = next_comment.split("<p>")[0]
         job_description = "<br>".join(next_comment.split("<p>")[1:]).replace("</p>", "")
-        jobs.insert_one(
-            {
-                "kid": kid,
-                "head": job_head,
-                "description": job_description,
-                "day": comment_time_date,
-                "time": comment_time_time,
-            }
-        )
+        try:
+            jobs.insert_one(
+                {
+                    "kid": kid,
+                    "head": job_head,
+                    "description": job_description,
+                    "day": comment_time_date,
+                    "time": comment_time_time,
+                }
+            )
+        except AutoReconnect as e:
+            time.sleep(0.5)
+    client.close()
 
 
-def grab_new_comments(all_kids):
+def grab_new_comments(all_kids, month_year):
     """
     get saved kid_id from base, get only new id with multiprocessing
     """
@@ -109,7 +113,9 @@ def grab_new_comments(all_kids):
             "kid": comment["kid"],
             "head": comment["head"],
             "description": comment["description"],
-            "time": comment["day"] + "@" + comment["time"],
+            "day": comment["day"],
+            "time": comment["time"],
+            "month_year": month_year,
         }
         for comment in jobs.find({})
     ]
@@ -118,7 +124,7 @@ def grab_new_comments(all_kids):
     return comments
 
 
-def make_html(job_listing, filename):
+def make_html(job_listing, filename, month_year):
     """
     create simple html from comments with (and without) keyword
     """
@@ -128,13 +134,16 @@ def make_html(job_listing, filename):
     jobs_block = ""
     for i, entry in enumerate(job_listing, 1):
         entry_text = f"{entry['head']} {entry['description']}"
-        if "remote" in entry_text.lower():
-            block_start = '<div class="job_entry">'
-            first_line = f"""<div class="job_head"><em>#{i}</em>
-                             {entry['head']}, posted: {entry['time']}</div>"""
-            jobs_block += f"""{block_start}{first_line}
-                              {entry['description']}</a></div>\n"""
-            counter += 1
+        if entry["month_year"] != month_year:
+            continue
+        if "remote" not in entry_text.lower():
+            continue
+        block_start = '<div class="job_entry">'
+        first_line = f"""<div class="job_head"><em>#{i}</em>
+                            {entry['head']}, posted: {entry['day']} at {entry['time']}</div>"""
+        jobs_block += f"""{block_start}{first_line}
+                            {entry['description']}</a></div>\n"""
+        counter += 1
     with codecs.open(f"{filename}.html", "w", encoding="utf-8") as file:
         file.write(template.format(filename, jobs_block))
     print(f"Written to html: {counter} job postings.")
@@ -158,11 +167,11 @@ def run(thread):
     """
     main block for getting data with API
     """
-    name = get_thread_name(thread)
+    name, month_year = get_thread_name(thread)
     kids = get_kids(thread)
     print(f'In thread {thread} with name "{name}" are {len(kids)} records')
-    new_comments = grab_new_comments(kids)
-    make_html(new_comments, name)
+    new_comments = grab_new_comments(kids, month_year)
+    make_html(new_comments, name, month_year)
 
 
 if __name__ == "__main__":
