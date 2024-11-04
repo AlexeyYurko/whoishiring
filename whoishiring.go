@@ -98,14 +98,14 @@ func processComments(kids []int, monthYear string) []*JobEntry {
 		entries []*JobEntry
 	)
 
-	semaphore := make(chan struct{}, 20) // Ограничиваем количество горутин
+	semaphore := make(chan struct{}, 20)
 
 	for _, kid := range kids {
 		wg.Add(1)
 		go func(kid int) {
 			defer wg.Done()
-			semaphore <- struct{}{}        // Занимаем слот
-			defer func() { <-semaphore }() // Освобождаем слот
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
 
 			item, err := getItem(kid)
 			if err != nil {
