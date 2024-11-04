@@ -11,8 +11,8 @@ import datetime
 import pickle
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from pymongo import MongoClient
@@ -89,7 +89,7 @@ def get_multi_comments(kid):
                     "time": comment_time_time,
                 }
             )
-        except AutoReconnect as e:
+        except AutoReconnect:
             time.sleep(0.5)
     client.close()
 
